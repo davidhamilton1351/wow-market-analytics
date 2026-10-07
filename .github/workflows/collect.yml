@@ -1,7 +1,9 @@
 name: Collect auction data
 
 on:
-  workflow_dispatch:   # adds a "Run workflow" button so you can run it manually
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
 
 jobs:
   collect:
