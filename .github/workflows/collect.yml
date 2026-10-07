@@ -1,0 +1,26 @@
+name: Collect auction data
+
+on:
+  workflow_dispatch:   # adds a "Run workflow" button so you can run it manually
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install packages
+        run: pip install -r requirements.txt
+
+      - name: Pull auction snapshot
+        env:
+          BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+          BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+        run: python pull_auctions.py
+
