@@ -1,64 +1,35 @@
-import gzip
-import json
-import os
 from datetime import datetime, timezone
-from pathlib import Path
+from urllib.parse import urlparse
 
-import requests
-from azure.storage.blob import BlobServiceClient
-from dotenv import load_dotenv
-
-load_dotenv()
+from blizzard import api_get, get_token, save_gz_json
 
 # Settings: the only lines to change for another realm or game version
 REGION = "us"
 NAMESPACE = f"dynamic-classic-{REGION}"
 CONNECTED_REALM_ID = 4385
-CONTAINER = "raw"
 
-# Get an access token
-token_response = requests.post(
-    "https://oauth.battle.net/token",
-    data={"grant_type": "client_credentials"},
-    auth=(os.getenv("BLIZZARD_CLIENT_ID"), os.getenv("BLIZZARD_CLIENT_SECRET")),
-)
-token_response.raise_for_status()
-headers = {"Authorization": f"Bearer {token_response.json()['access_token']}"}
-params = {"namespace": NAMESPACE, "locale": "en_US"}
 
-# 1. Ask Blizzard where this realm's auction data lives
-realm_url = f"https://{REGION}.api.blizzard.com/data/wow/connected-realm/{CONNECTED_REALM_ID}"
-realm_response = requests.get(realm_url, params=params, headers=headers)
-realm_response.raise_for_status()
-auctions_href = realm_response.json()["auctions"]["href"]
-auctions_url = auctions_href.split("?")[0].rstrip("/")  # drop Blizzard's query string and trailing slash
+def href_to_path(href):
+    """Turn Blizzard's full link into a clean API path (no query string or trailing slash)."""
+    return urlparse(href).path.rstrip("/")
 
-# 2. Download every auction listing
-auctions_response = requests.get(auctions_url, params=params, headers=headers)
-auctions_response.raise_for_status()
-data = auctions_response.json()
-print(f"Downloaded {len(data.get('auctions', [])):,} auctions")
 
-# 3. Compress the raw snapshot (JSON shrinks a lot)
+token = get_token()
 now = datetime.now(timezone.utc)
-compressed = gzip.compress(json.dumps(data).encode("utf-8"))
-print(f"Compressed {len(auctions_response.content):,} bytes down to {len(compressed):,} bytes")
+stamp = f"date={now:%Y-%m-%d}/snapshot_{now:%Y%m%dT%H%M%SZ}.json.gz"
 
-# 4. Build an organized path: one folder per game version, realm, and day
-blob_path = (
-    f"auctions/namespace={NAMESPACE}/realm={CONNECTED_REALM_ID}/"
-    f"date={now:%Y-%m-%d}/snapshot_{now:%Y%m%dT%H%M%SZ}.json.gz"
-)
+# 1. Realm auctions (gear, bags, pets: non-stackable items)
+realm = api_get(f"/data/wow/connected-realm/{CONNECTED_REALM_ID}", NAMESPACE, token)
+data = api_get(href_to_path(realm["auctions"]["href"]), NAMESPACE, token)
+print(f"Realm auctions: {len(data.get('auctions', [])):,} listings")
+save_gz_json(data, f"auctions/namespace={NAMESPACE}/realm={CONNECTED_REALM_ID}/{stamp}")
 
-# 5. Upload to Azure if we have a connection string, otherwise save locally
-connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-if connection_string:
-    blob_service = BlobServiceClient.from_connection_string(connection_string)
-    blob_client = blob_service.get_blob_client(container=CONTAINER, blob=blob_path)
-    blob_client.upload_blob(compressed)
-    print(f"Uploaded to Azure: {CONTAINER}/{blob_path}")
-else:
-    local_file = Path("data/raw") / blob_path
-    local_file.parent.mkdir(parents=True, exist_ok=True)
-    local_file.write_bytes(compressed)
-    print(f"No Azure connection string found; saved locally to {local_file}")
+# 2. Region-wide commodities (stackable items). Empty for MoP Classic as of Oct 2026;
+#    we check every hour so we catch it automatically if Blizzard starts publishing it.
+commodities_link = data.get("commodities", {}).get("href")
+if commodities_link:
+    commodities = api_get(href_to_path(commodities_link), NAMESPACE, token)
+    listings = commodities.get("auctions", [])
+    print(f"Commodities: {len(listings):,} listings")
+    if listings:
+        save_gz_json(commodities, f"commodities/namespace={NAMESPACE}/{stamp}")
