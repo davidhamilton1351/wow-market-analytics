@@ -66,3 +66,11 @@ def load_latest_gz_json(prefix, container="raw"):
         raise FileNotFoundError(f"No files found under {container}/{prefix}")
     print(f"Loading {container}/{names[-1]}")
     return json.loads(gzip.decompress(container_client.download_blob(names[-1]).readall()))
+
+def blob_exists(blob_path, container="raw"):
+    """True if this file is already in Azure (or saved locally when there's no Azure)."""
+    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    if not connection_string:
+        return (Path("data") / container / blob_path).exists()
+    service = BlobServiceClient.from_connection_string(connection_string)
+    return service.get_blob_client(container=container, blob=blob_path).exists()
