@@ -1,8 +1,6 @@
 name: Collect auction data
 
 on:
-  schedule:
-    - cron: "43 * * * *"
   workflow_dispatch:
 
 jobs:
