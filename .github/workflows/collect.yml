@@ -2,7 +2,7 @@ name: Collect auction data
 
 on:
   schedule:
-    - cron: "30 * * * *"
+    - cron: "43 * * * *"
   workflow_dispatch:
 
 jobs:
