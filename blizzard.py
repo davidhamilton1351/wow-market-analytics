@@ -56,3 +56,13 @@ def save_gz_json(data, blob_path, container="raw"):
         local_file.parent.mkdir(parents=True, exist_ok=True)
         local_file.write_bytes(compressed)
         print(f"Saved locally: {local_file}")
+
+def load_latest_gz_json(prefix, container="raw"):
+    """Download and decompress the newest file under a folder in Azure."""
+    service = BlobServiceClient.from_connection_string(os.getenv("AZURE_STORAGE_CONNECTION_STRING"))
+    container_client = service.get_container_client(container)
+    names = sorted(b.name for b in container_client.list_blobs(name_starts_with=prefix))
+    if not names:
+        raise FileNotFoundError(f"No files found under {container}/{prefix}")
+    print(f"Loading {container}/{names[-1]}")
+    return json.loads(gzip.decompress(container_client.download_blob(names[-1]).readall()))
